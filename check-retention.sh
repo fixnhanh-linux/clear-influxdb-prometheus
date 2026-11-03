@@ -22,7 +22,7 @@ INFLUX_DIR="${INFLUX_DIR:-/var/lib/influxdb}"
 SCAN_DIR="${SCAN_DIR:-/opt/monitor-grafana-vcenter-total-cluster-prometheus}"
 HERE=$(cd "$(dirname "$0")" && pwd)
 # Khong truyen token / user -> tu tim tren server
-if [ -z "${INFLUX_USER:-}${INFLUX_TOKEN:-}" ] && [ -f "$HERE/find-influx-cred.sh" ]; then
+if [ -z "${INFLUX_USER:-}${INFLUX_TOKEN:-}${INFLUX_CRED_DONE:-}" ] && [ -f "$HERE/find-influx-cred.sh" ]; then
   eval "$(INFLUX_URL="$INFLUX_URL" INFLUX_DIR="$INFLUX_DIR" SCAN_DIR="$SCAN_DIR" bash "$HERE/find-influx-cred.sh" --env)"
 fi
 export INFLUX_URL INFLUX_DIR INFLUX_USER INFLUX_PASS INFLUX_TOKEN
@@ -146,11 +146,12 @@ if ver.startswith("1") or ver == "?":
     print(fmt.format("DATABASE", "RETENTION POLICY", "THOI HAN", "SHARD GRP", "DEF", "SHARDS", "DATA CU NHAT", "DUNG LUONG"))
     print("-" * 104)
     total = 0
+    out = []   # (dung luong, dong) -> in theo dung luong cao -> thap
     for db in dbs:
         try:
             rps = list(rows(influx_v1(f'SHOW RETENTION POLICIES ON "{db}"')))
         except Exception as e:
-            print(f"{db:<28} {R}loi: {e}{N}")
+            out.append((-1, f"{db:<28} {R}loi: {e}{N}"))
             continue
         for _, rp in rps:
             name = rp["name"]
@@ -166,11 +167,15 @@ if ver.startswith("1") or ver == "?":
                               "*" if rp.get("default") else "", sh.get("n", "-"), oldest, human(size))
             if infinite:
                 line = R + line + N
-                warn.append(f'{db}.{name}: retention VO HAN, dang chiem {human(size)}, data tu {oldest_s}')
-            print(line)
+                warn.append((size, f'{db}.{name}: retention VO HAN, dang chiem {human(size)}, data tu {oldest_s}',
+                             f'ALTER RETENTION POLICY "{name}" ON "{db}" DURATION 90d SHARD DURATION 1d'
+                             + (" DEFAULT" if rp.get("default") else "")))
+            out.append((size, line))
         wal = du(os.path.join(DIR, "wal", db))
         if wal > 1024 ** 3:
-            print(f"{'':<28} {Y}WAL: {human(wal)}{N}")
+            out.append((wal, f"{db[:28]:<28} {Y}WAL: {human(wal)}{N}"))
+    for _, line in sorted(out, key=lambda x: -x[0]):
+        print(line)
     print("-" * 104)
     print(f"Tong data: {human(total)}   (thu muc {DIR}: {human(du(DIR))})")
 else:
@@ -182,6 +187,7 @@ else:
     print()
     print(fmt.format("BUCKET", "ID", "THOI HAN", "DUNG LUONG"))
     print("-" * 76)
+    out = []
     for b in json.loads(body).get("buckets", []):
         secs = next((r.get("everySeconds", 0) for r in b.get("retentionRules", []) if r.get("type") == "expire"), 0)
         size = du(os.path.join(DIR, "engine", "data", b["id"]))
@@ -189,16 +195,20 @@ else:
         line = fmt.format(b["name"][:32], b["id"], dur, human(size))
         if not secs and not b["name"].startswith("_"):
             line = R + line + N
-            warn.append(f'bucket {b["name"]}: retention VO HAN, dang chiem {human(size)}')
+            warn.append((size, f'bucket {b["name"]}: retention VO HAN, dang chiem {human(size)}',
+                         f'influx bucket update --id {b["id"]} --retention 90d'))
+        out.append((size, line))
+    for _, line in sorted(out, key=lambda x: -x[0]):
         print(line)
 
 if warn:
-    print(f"\n{R}CANH BAO:{N}")
-    for w in warn:
+    warn.sort(key=lambda x: -x[0])
+    print(f"\n{R}CANH BAO (cao -> thap):{N}")
+    for _, w, _ in warn:
         print(f"  {R}- {w}{N}")
-    if ver.startswith("1"):
-        print("\nVi du dat thoi han 90 ngay (xoa shard cu hon 90d o lan check ke tiep, ~30 phut):")
-        print('  influx -execute \'ALTER RETENTION POLICY "autogen" ON "<db>" DURATION 90d SHARD DURATION 1d DEFAULT\'')
+    print("\nLenh tham khao dat thoi han 90 ngay (CHUA chay; 1.x xoa shard cu o lan check ke tiep, ~30 phut):")
+    for _, _, cmd in warn:
+        print(f"  influx -execute '{cmd}'" if cmd.startswith("ALTER") else f"  {cmd}")
 else:
     print(f"\n{G}Tat ca database deu co thoi han luu.{N}")
 PY

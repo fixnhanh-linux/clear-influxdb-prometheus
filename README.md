@@ -4,6 +4,8 @@ Read-only scripts that show how long InfluxDB and Prometheus keep data, and whic
 
 | Script | What it reports |
 | --- | --- |
+| [`check-all.sh`](check-all.sh) | Runs the three checks below in one go and saves the report to a text file |
+| [`check-size.sh`](check-size.sh) | Everything sorted by size, largest first: directories on the server, InfluxDB databases / retention policies / measurements, Prometheus metrics and labels by series count, and how much would be freed by keeping only 30 / 90 / 180 / 365 days |
 | [`check-retention.sh`](check-retention.sh) | Retention of every InfluxDB database / retention policy (1.x) or bucket (2.x), oldest data, size on disk; Prometheus retention time / size, oldest sample, TSDB size |
 | [`check-no-data.sh`](check-no-data.sh) | InfluxDB databases / retention policies / buckets with no new data in the last N days (default 30), optionally down to measurement level |
 | [`find-influx-cred.sh`](find-influx-cred.sh) | Finds the InfluxDB token (2.x) or user / password (1.x) already stored on the server, tests each one and picks the one that works. The other two scripts call it automatically when no credentials are passed |
@@ -24,9 +26,31 @@ All scripts only read. Any `DROP` / `ALTER` / `delete` command they print is a s
 ```bash
 git clone https://github.com/fixnhanh-linux/clear-influxdb-prometheus.git
 cd clear-influxdb-prometheus
-sudo bash check-retention.sh
-sudo bash check-no-data.sh
+sudo bash check-all.sh          # full report, also saved to report-<host>-<date>.txt
 ```
+
+## check-all.sh
+
+```bash
+sudo bash check-all.sh                     # report saved to ./report-<host>-<date time>.txt
+sudo bash check-all.sh -d 60               # "no data" threshold 60 days (default 30)
+sudo bash check-all.sh -q                  # quick: skip per-measurement sizes
+sudo bash check-all.sh -o /tmp/report.txt  # choose the report file
+```
+
+## check-size.sh
+
+```bash
+sudo bash check-size.sh          # full (runs influx_inspect report-disk, can take minutes on large data)
+sudo bash check-size.sh -q       # quick: skip per-measurement sizes
+sudo bash check-size.sh -n 30    # number of top rows (default 15)
+```
+
+- Top directories under `/var/lib`, `/var/log`, `/opt`, `/home`, plus `docker system df` and the largest docker volumes.
+- InfluxDB size per database and per retention policy with percentage bar, shard count and retention (infinite ones in red).
+- **If retention were set**: for every retention policy, how much data is older than 30 / 90 / 180 / 365 days, based on shard end times (1.x) or shard file times (2.x).
+- Top measurements by disk size via `influx_inspect report-disk -detailed` (InfluxDB 1.8+, timeout `INSPECT_TIMEOUT`, default 1200 s).
+- Prometheus: top metrics and `label=value` pairs by series count, and labels with the most values (`/api/v1/status/tsdb`).
 
 ## check-retention.sh
 
@@ -68,12 +92,13 @@ Each candidate is tested against `INFLUX_URL`: 1.x prefers an admin user (needed
 
 | Variable | Default | Used by |
 | --- | --- | --- |
-| `INFLUX_URL` | `http://localhost:8086` | both |
-| `INFLUX_DIR` | `/var/lib/influxdb` | both |
-| `INFLUX_USER` / `INFLUX_PASS` | – | both (InfluxDB 1.x auth) |
-| `INFLUX_TOKEN` | – | both (InfluxDB 2.x) |
-| `PROM_URLS` | auto-detected docker containers, else `http://localhost:9090` | check-retention.sh |
-| `SCAN_DIR` | `/opt/monitor-grafana-vcenter-total-cluster-prometheus` | check-retention.sh |
+| `INFLUX_URL` | `http://localhost:8086` | all |
+| `INFLUX_DIR` | `/var/lib/influxdb` | all |
+| `INFLUX_USER` / `INFLUX_PASS` | found automatically | all (InfluxDB 1.x auth) |
+| `INFLUX_TOKEN` | found automatically | all (InfluxDB 2.x) |
+| `PROM_URLS` | auto-detected docker containers, else `http://localhost:9090` | check-retention.sh, check-size.sh |
+| `SCAN_DIR` | `/opt/monitor-grafana-vcenter-total-cluster-prometheus` | check-retention.sh, find-influx-cred.sh |
+| `INSPECT_TIMEOUT` | `1200` | check-size.sh |
 
 </details>
 
@@ -91,9 +116,31 @@ Each candidate is tested against `INFLUX_URL`: 1.x prefers an admin user (needed
 ```bash
 git clone https://github.com/fixnhanh-linux/clear-influxdb-prometheus.git
 cd clear-influxdb-prometheus
-sudo bash check-retention.sh
-sudo bash check-no-data.sh
+sudo bash check-all.sh          # bao cao day du, luu ra report-<host>-<ngay>.txt
 ```
+
+## check-all.sh - chay tat ca
+
+```bash
+sudo bash check-all.sh                     # bao cao luu o ./report-<host>-<ngay gio>.txt
+sudo bash check-all.sh -d 60               # moc "khong co data" 60 ngay (mac dinh 30)
+sudo bash check-all.sh -q                  # nhanh: bo qua dung luong tung measurement
+sudo bash check-all.sh -o /tmp/report.txt  # chon file bao cao
+```
+
+## check-size.sh - dung luong cao -> thap
+
+```bash
+sudo bash check-size.sh          # day du (chay influx_inspect report-disk, data lon co the vai phut)
+sudo bash check-size.sh -q       # nhanh: bo qua dung luong tung measurement
+sudo bash check-size.sh -n 30    # so dong top (mac dinh 15)
+```
+
+- Top thu muc trong `/var/lib`, `/var/log`, `/opt`, `/home`, kem `docker system df` va volume docker lon nhat.
+- Dung luong InfluxDB theo database va retention policy: %, thanh ty le, so shard, thoi han (VO HAN to do).
+- **Neu dat thoi han luu**: moi retention policy co bao nhieu data cu hon 30 / 90 / 180 / 365 ngay, tinh theo end time cua shard (1.x) hoac thoi gian file cua shard (2.x).
+- Top measurement theo dung luong qua `influx_inspect report-disk -detailed` (InfluxDB 1.8+, gioi han `INSPECT_TIMEOUT`, mac dinh 1200 giay).
+- Prometheus: top metric va cap `label=value` theo so series, label co nhieu gia tri nhat (`/api/v1/status/tsdb`).
 
 ## check-retention.sh - bao cao thoi han luu
 
@@ -135,11 +182,12 @@ Moi cai tim duoc deu thu voi `INFLUX_URL`: 1.x uu tien user admin (can cho `SHOW
 
 | Bien | Mac dinh | Script |
 | --- | --- | --- |
-| `INFLUX_URL` | `http://localhost:8086` | ca hai |
-| `INFLUX_DIR` | `/var/lib/influxdb` | ca hai |
-| `INFLUX_USER` / `INFLUX_PASS` | – | ca hai (auth InfluxDB 1.x) |
-| `INFLUX_TOKEN` | – | ca hai (InfluxDB 2.x) |
-| `PROM_URLS` | tu tim container docker, neu khong co thi `http://localhost:9090` | check-retention.sh |
-| `SCAN_DIR` | `/opt/monitor-grafana-vcenter-total-cluster-prometheus` | check-retention.sh |
+| `INFLUX_URL` | `http://localhost:8086` | tat ca |
+| `INFLUX_DIR` | `/var/lib/influxdb` | tat ca |
+| `INFLUX_USER` / `INFLUX_PASS` | tu tim | tat ca (auth InfluxDB 1.x) |
+| `INFLUX_TOKEN` | tu tim | tat ca (InfluxDB 2.x) |
+| `PROM_URLS` | tu tim container docker, neu khong co thi `http://localhost:9090` | check-retention.sh, check-size.sh |
+| `SCAN_DIR` | `/opt/monitor-grafana-vcenter-total-cluster-prometheus` | check-retention.sh, find-influx-cred.sh |
+| `INSPECT_TIMEOUT` | `1200` | check-size.sh |
 
 </details>

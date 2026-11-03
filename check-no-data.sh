@@ -30,7 +30,7 @@ export INFLUX_URL="${INFLUX_URL:-http://localhost:8086}"
 export INFLUX_DIR="${INFLUX_DIR:-/var/lib/influxdb}"
 HERE=$(cd "$(dirname "$0")" && pwd)
 # Khong truyen token / user -> tu tim tren server
-if [ -z "${INFLUX_USER:-}${INFLUX_TOKEN:-}" ] && [ -f "$HERE/find-influx-cred.sh" ]; then
+if [ -z "${INFLUX_USER:-}${INFLUX_TOKEN:-}${INFLUX_CRED_DONE:-}" ] && [ -f "$HERE/find-influx-cred.sh" ]; then
   eval "$(bash "$HERE/find-influx-cred.sh" --env)"
 fi
 export INFLUX_USER INFLUX_PASS INFLUX_TOKEN
@@ -86,7 +86,7 @@ def parse_ts(s):
 def show_ts(ts):
     if not ts:
         return "-"
-    return f"{datetime.fromtimestamp(ts):%Y-%m-%d %H:%M} ({int((NOW - ts) // 86400)}d)"
+    return f"{datetime.fromtimestamp(ts):%Y-%m-%d %H:%M} ({max(0, int((NOW - ts) // 86400))}d)"
 
 print(f"{B}{C}==== INFLUXDB: database / bucket KHONG co data trong {DAYS} ngay ===={N}")
 print(f"URL: {URL}   Thu muc: {DIR}   Moc: truoc {datetime.fromtimestamp(CUTOFF):%Y-%m-%d %H:%M}")
@@ -142,6 +142,8 @@ if not ver.startswith("2"):
     except Exception as e:
         print(f"{Y}SHOW SHARDS loi: {e}{N}")
 
+    # in theo dung luong cao -> thap
+    dbs.sort(key=lambda d: -scan([os.path.join(DIR, "data", d), os.path.join(DIR, "wal", d)])[1])
     print(header)
     print("-" * 100)
     for db in dbs:
@@ -150,6 +152,7 @@ if not ver.startswith("2"):
         except Exception as e:
             print(f"{db:<26} {R}loi: {e}{N}")
             continue
+        rps.sort(key=lambda r: -scan([os.path.join(DIR, "data", db, r["name"])])[1])
         db_rows = []
         for rp in rps:
             name = rp["name"]
@@ -229,7 +232,9 @@ else:
     fmt = "{:<30} {:<18} {:<24} {:>10}  {}"
     print(fmt.format("BUCKET", "ID", "GHI LAN CUOI", "DUNG LUONG", "TRANG THAI"))
     print("-" * 104)
-    for b in json.loads(body).get("buckets", []):
+    buckets = json.loads(body).get("buckets", [])
+    buckets.sort(key=lambda b: -scan([os.path.join(DIR, "engine", "data", b["id"])])[1])
+    for b in buckets:
         bid, name = b["id"], b["name"]
         last, size = scan([os.path.join(DIR, "engine", "data", bid), os.path.join(DIR, "engine", "wal", bid)])
         live = None
