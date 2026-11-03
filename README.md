@@ -4,13 +4,14 @@ Read-only scripts that show how long InfluxDB and Prometheus keep data, and whic
 
 | Script | What it reports |
 | --- | --- |
+| [`menu.sh`](menu.sh) | Interactive menu: aligned table of buckets / databases by size, details per bucket (size per month, what each retention would free), set retention, delete buckets with no data, run the reports. Every change is previewed and needs confirmation |
 | [`check-all.sh`](check-all.sh) | Runs the three checks below in one go and saves the report to a text file |
 | [`check-size.sh`](check-size.sh) | Everything sorted by size, largest first: directories on the server, InfluxDB databases / retention policies / measurements, Prometheus metrics and labels by series count, and how much would be freed by keeping only 30 / 90 / 180 / 365 days |
 | [`check-retention.sh`](check-retention.sh) | Retention of every InfluxDB database / retention policy (1.x) or bucket (2.x), oldest data, size on disk; Prometheus retention time / size, oldest sample, TSDB size |
 | [`check-no-data.sh`](check-no-data.sh) | InfluxDB databases / retention policies / buckets with no new data in the last N days (default 30), optionally down to measurement level |
 | [`find-influx-cred.sh`](find-influx-cred.sh) | Finds the InfluxDB token (2.x) or user / password (1.x) already stored on the server, tests each one and picks the one that works. The other two scripts call it automatically when no credentials are passed |
 
-All scripts only read. Any `DROP` / `ALTER` / `delete` command they print is a suggestion and is never executed.
+All scripts except `menu.sh` only read. Any `DROP` / `ALTER` / `delete` command they print is a suggestion and is never executed.
 
 <details>
 <summary><b>English</b></summary>
@@ -27,7 +28,21 @@ All scripts only read. Any `DROP` / `ALTER` / `delete` command they print is a s
 git clone https://github.com/fixnhanh-linux/clear-influxdb-prometheus.git
 cd clear-influxdb-prometheus
 sudo bash check-all.sh          # full report, also saved to report-<host>-<date>.txt
+sudo bash menu.sh               # interactive menu
 ```
+
+## menu.sh
+
+```bash
+sudo bash menu.sh
+```
+
+- Header: disk usage of the InfluxDB directory, number of buckets, how many have no data / infinite retention.
+- Table sorted by size (or last write / name), filter all / no data in N days / infinite retention.
+- **1** details: size per month, data freed by keeping 7 / 30 / 90 / 180 / 365 days.
+- **2** set retention: pick rows (`1,3,5-7`, `v` = all infinite, `s` = all with no data, `a` = all), enter `30d` / `12w` / `1y` / `0` (infinite), preview how much will be deleted, type `yes`. 2.x uses `PATCH /api/v2/buckets/<id>`, 1.x `ALTER RETENTION POLICY` (shard group shortened when needed).
+- **3** delete: pick rows, preview, type `XOA`. 2.x deletes the bucket; 1.x drops the whole database when all its retention policies are selected, otherwise `DROP RETENTION POLICY` (the default policy is skipped). System buckets (`_monitoring`, `_tasks`, `_internal`) are never changed.
+- **7 / 8 / 9 / t** run `check-all.sh`, `check-size.sh`, `check-retention.sh`, `find-influx-cred.sh`.
 
 ## check-all.sh
 
@@ -117,7 +132,21 @@ Each candidate is tested against `INFLUX_URL`: 1.x prefers an admin user (needed
 git clone https://github.com/fixnhanh-linux/clear-influxdb-prometheus.git
 cd clear-influxdb-prometheus
 sudo bash check-all.sh          # bao cao day du, luu ra report-<host>-<ngay>.txt
+sudo bash menu.sh               # menu tuong tac
 ```
+
+## menu.sh - menu tuong tac
+
+```bash
+sudo bash menu.sh
+```
+
+- Dau trang: dung luong o dia cua thu muc InfluxDB, so bucket, bao nhieu bucket khong co data / thoi han VO HAN.
+- Bang sap xep theo dung luong (hoac ghi lan cuoi / ten), loc tat ca / khong co data N ngay / VO HAN.
+- **1** chi tiet: dung luong theo thang, giai phong bao nhieu neu giu 7 / 30 / 90 / 180 / 365 ngay.
+- **2** dat thoi han luu: chon dong (`1,3,5-7`, `v` = tat ca VO HAN, `s` = tat ca khong co data, `a` = tat ca), nhap `30d` / `12w` / `1y` / `0` (vo han), xem truoc se xoa bao nhieu, go `yes`. 2.x dung `PATCH /api/v2/buckets/<id>`, 1.x dung `ALTER RETENTION POLICY` (tu rut shard group khi can).
+- **3** xoa: chon dong, xem truoc, go `XOA`. 2.x xoa bucket; 1.x xoa ca database neu chon het retention policy cua no, neu khong thi `DROP RETENTION POLICY` (bo qua policy mac dinh). Bucket he thong (`_monitoring`, `_tasks`, `_internal`) khong bao gio bi sua / xoa.
+- **7 / 8 / 9 / t** chay `check-all.sh`, `check-size.sh`, `check-retention.sh`, `find-influx-cred.sh`.
 
 ## check-all.sh - chay tat ca
 
