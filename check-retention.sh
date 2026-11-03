@@ -89,7 +89,7 @@ def age(ts):
 # Phat hien version
 try:
     h, _ = req("/ping")
-    ver = h.get("X-Influxdb-Version", "?")
+    ver = h.get("X-Influxdb-Version", "?").lstrip("vV")   # 2.x tra ve "v2.9.1"
 except Exception as e:
     print(f"{R}Khong ket noi duoc InfluxDB: {e}{N}")
     print("Chi bao cao dung luong thu muc:")
@@ -180,7 +180,7 @@ if ver.startswith("1") or ver == "?":
     print(f"Tong data: {human(total)}   (thu muc {DIR}: {human(du(DIR))})")
 else:
     if not TOKEN:
-        print(f"{Y}InfluxDB 2.x can token: INFLUX_TOKEN=... bash check-retention.sh{N}")
+        print(f"{Y}InfluxDB 2.x chua co token. Chay: sudo bash find-influx-cred.sh  (hoac sudo INFLUX_TOKEN=... bash check-retention.sh){N}")
         raise SystemExit
     _, body = req("/api/v2/buckets?limit=100", {"Authorization": "Token " + TOKEN})
     fmt = "{:<32} {:<18} {:>12} {:>10}"
@@ -284,6 +284,8 @@ try:
     flags = api("/api/v1/status/flags")
 except Exception as e:
     print(f"  {R}Khong ket noi duoc: {e}{N}")
+    print("  Prometheus khong chay o dia chi nay. Neu chay o may / cong khac:")
+    print("    sudo PROM_URLS=http://<ip>:<port> bash check-retention.sh")
     raise SystemExit
 
 rt = flags.get("storage.tsdb.retention.time", "")
@@ -335,9 +337,14 @@ done
 # ---------------------------------------------------------------- Config files
 if [ -d "$SCAN_DIR" ]; then
   title "CAU HINH RETENTION TRONG $SCAN_DIR"
-  grep -rnE --include='*.yml' --include='*.yaml' --include='*.env' --include='*.conf' --include='*.toml' \
+  found=$(grep -rnE --include='*.yml' --include='*.yaml' --include='*.env' --include='*.conf' --include='*.toml' \
     'retention|tsdb|INFLUXDB_.*RETENTION|DOCKER_INFLUXDB_INIT_RETENTION' "$SCAN_DIR" 2>/dev/null \
-    | grep -v '/node_modules/' | head -40 || echo "Khong tim thay"
+    | grep -v '/node_modules/' | head -40)
+  echo "${found:-Khong co dong nao ve retention}"
+  # goi y Prometheus o dau neu localhost:9090 khong chay
+  prom=$(grep -rnE --include='*.yml' --include='*.yaml' --include='*.env' \
+    '(prometheus|9090)' "$SCAN_DIR" 2>/dev/null | grep -E 'https?://|[0-9]+:9090' | grep -v '/node_modules/' | head -10)
+  [ -n "$prom" ] && { echo; echo "Dia chi Prometheus nhac toi trong cau hinh:"; echo "$prom"; }
 fi
 if [ -f /etc/influxdb/influxdb.conf ]; then
   title "/etc/influxdb/influxdb.conf (retention)"

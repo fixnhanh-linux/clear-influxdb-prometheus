@@ -92,7 +92,7 @@ print(f"{B}{C}==== INFLUXDB: database / bucket KHONG co data trong {DAYS} ngay =
 print(f"URL: {URL}   Thu muc: {DIR}   Moc: truoc {datetime.fromtimestamp(CUTOFF):%Y-%m-%d %H:%M}")
 try:
     h, _ = req("/ping")
-    ver = h.get("X-Influxdb-Version", "?")
+    ver = h.get("X-Influxdb-Version", "?").lstrip("vV")   # 2.x tra ve "v2.9.1"
 except Exception as e:
     print(f"{R}Khong ket noi duoc InfluxDB: {e}{N}")
     raise SystemExit(1)
@@ -210,7 +210,7 @@ if not ver.startswith("2"):
 # ------------------------------------------------------------------ InfluxDB 2.x
 else:
     if not TOKEN:
-        print(f"{Y}InfluxDB 2.x can token: INFLUX_TOKEN=... bash check-no-data.sh{N}")
+        print(f"{Y}InfluxDB 2.x chua co token. Chay: sudo bash find-influx-cred.sh  (hoac sudo INFLUX_TOKEN=... bash check-no-data.sh){N}")
         raise SystemExit(1)
     auth = {"Authorization": "Token " + TOKEN}
 

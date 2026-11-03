@@ -171,7 +171,7 @@ def req(path, headers=None, timeout=10):
 
 try:
     h, _ = req("/ping")
-    ver = h.get("X-Influxdb-Version", "?")
+    ver = h.get("X-Influxdb-Version", "?").lstrip("vV")   # 2.x tra ve "v2.9.1"
 except Exception as e:
     log(f"{R}Khong ket noi duoc InfluxDB {URL}: {e}{N}")
     ver = None
@@ -232,12 +232,13 @@ if v2 and not any(c.get("ok") for c in cands):
     tokre = re.compile(r"\b([A-Za-z0-9_\-]{60,}==)")
     bolts = [P("/var/lib/influxdb2/influxd.bolt"), os.path.join(DIR, "influxd.bolt"), P("/root/.influxdbv2/influxd.bolt")]
     bolt = next((b for b in bolts if os.path.isfile(b)), None)
-    if bolt and shutil.which("influxd"):
+    influxd = shutil.which("influxd") or next((x for x in ["/usr/bin/influxd", "/usr/local/bin/influxd"] if os.path.isfile(x)), None)
+    if bolt and influxd:
         tmp = tempfile.mkdtemp()
         try:
             os.chmod(tmp, 0o700)
             shutil.copy2(bolt, os.path.join(tmp, "influxd.bolt"))
-            out = run(["influxd", "recovery", "auth", "list", "--bolt-path", os.path.join(tmp, "influxd.bolt")], 60)
+            out = run([influxd, "recovery", "auth", "list", "--bolt-path", os.path.join(tmp, "influxd.bolt")], 60)
             for t in tokre.findall(out):
                 add("token", f"influxd recovery ({bolt})", t)
         finally:

@@ -118,7 +118,7 @@ def dur_days(d):
 
 try:
     h, _ = req("/ping")
-    ver = h.get("X-Influxdb-Version", "?")
+    ver = h.get("X-Influxdb-Version", "?").lstrip("vV")   # 2.x tra ve "v2.9.1"
 except Exception as e:
     print(f"{R}Khong ket noi duoc InfluxDB: {e}{N}")
     ver = None
