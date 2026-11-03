@@ -20,6 +20,11 @@
 INFLUX_URL="${INFLUX_URL:-http://localhost:8086}"
 INFLUX_DIR="${INFLUX_DIR:-/var/lib/influxdb}"
 SCAN_DIR="${SCAN_DIR:-/opt/monitor-grafana-vcenter-total-cluster-prometheus}"
+HERE=$(cd "$(dirname "$0")" && pwd)
+# Khong truyen token / user -> tu tim tren server
+if [ -z "${INFLUX_USER:-}${INFLUX_TOKEN:-}" ] && [ -f "$HERE/find-influx-cred.sh" ]; then
+  eval "$(INFLUX_URL="$INFLUX_URL" INFLUX_DIR="$INFLUX_DIR" SCAN_DIR="$SCAN_DIR" bash "$HERE/find-influx-cred.sh" --env)"
+fi
 export INFLUX_URL INFLUX_DIR INFLUX_USER INFLUX_PASS INFLUX_TOKEN
 
 if [ -t 1 ]; then

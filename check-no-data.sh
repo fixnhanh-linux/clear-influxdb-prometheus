@@ -26,8 +26,15 @@ case "$DAYS" in ''|*[!0-9]*) echo "-d phai la so ngay"; exit 1 ;; esac
 
 command -v python3 >/dev/null || { echo "Can python3 de chay script nay"; exit 1; }
 
-INFLUX_URL="${INFLUX_URL:-http://localhost:8086}" \
-INFLUX_DIR="${INFLUX_DIR:-/var/lib/influxdb}" \
+export INFLUX_URL="${INFLUX_URL:-http://localhost:8086}"
+export INFLUX_DIR="${INFLUX_DIR:-/var/lib/influxdb}"
+HERE=$(cd "$(dirname "$0")" && pwd)
+# Khong truyen token / user -> tu tim tren server
+if [ -z "${INFLUX_USER:-}${INFLUX_TOKEN:-}" ] && [ -f "$HERE/find-influx-cred.sh" ]; then
+  eval "$(bash "$HERE/find-influx-cred.sh" --env)"
+fi
+export INFLUX_USER INFLUX_PASS INFLUX_TOKEN
+
 DAYS="$DAYS" DETAIL="$DETAIL" python3 - <<'PY'
 import os, csv, io, json, time, base64, urllib.request, urllib.parse
 from datetime import datetime, timezone
