@@ -171,6 +171,12 @@ def load():
             if len(page) < 100:
                 break
             offset += 100
+        try:
+            _, body = http("GET", "/api/v2/orgs?limit=100")
+            orgs = {o["id"]: o["name"] for o in json.loads(body).get("orgs", [])}
+        except Exception:
+            orgs = {}
+        multi_org = len({b.get("orgID") for b in buckets}) > 1
         for b in buckets:
             rule = next((r for r in b.get("retentionRules", []) if r.get("type") == "expire"), {})
             base, wal = os.path.join(DIR, "engine", "data", b["id"]), os.path.join(DIR, "engine", "wal", b["id"])
@@ -178,6 +184,7 @@ def load():
             for rp in os.listdir(base) if os.path.isdir(base) else []:
                 shards += shard_dirs(os.path.join(base, rp), os.path.join(wal, rp))
             items.append({"name": b["name"], "rp": None, "id": b["id"], "org": b.get("orgID"),
+                          "orgname": orgs.get(b.get("orgID"), b.get("orgID")) if multi_org else None,
                           "ret": rule.get("everySeconds", 0) / 86400,
                           "sg": rule.get("shardGroupDurationSeconds", 0) / 86400, "default": False, "shards": shards})
     else:
@@ -202,7 +209,10 @@ def load():
     for it in items:
         it["size"] = sum(s["size"] for s in it["shards"])
         it["last"] = max((s["mtime"] for s in it["shards"]), default=0)
-        it["label"] = it["name"] if it["rp"] is None else f"{it['name']} / {it['rp']}"
+        if it["rp"] is not None:
+            it["label"] = f"{it['name']} / {it['rp']}"
+        else:
+            it["label"] = f"{it['name']} [{it['orgname']}]" if it.get("orgname") else it["name"]
         it["system"] = it["name"] in SYSTEM
     state["items"] = items
     state["loaded"] = time.time()
@@ -240,7 +250,7 @@ def table():
         items = [i for i in items if stale(i)]
     elif state["filter"] == "inf":
         items = [i for i in items if i["ret"] == 0]
-    key = {"size": lambda i: -i["size"], "last": lambda i: i["last"], "name": lambda i: i["label"]}[state["sort"]]
+    key = {"size": lambda i: (i["system"], -i["size"]), "last": lambda i: i["last"], "name": lambda i: i["label"]}[state["sort"]]
     items = sorted(items, key=key)
     state["view"] = items
     total = sum(i["size"] for i in state["items"]) or 1
@@ -254,8 +264,8 @@ def table():
     for n, it in enumerate(items, 1):
         if it["system"]:
             st, sc = "he thong", D
-        elif not it["shards"]:
-            st, sc = "TRONG", Y
+        elif not it["size"]:
+            st, sc = "TRONG (0B)", Y
         elif stale(it):
             st, sc = f"KHONG CO DATA {state['days']}d", R
         else:

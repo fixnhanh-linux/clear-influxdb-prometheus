@@ -228,46 +228,79 @@ else:
                 out.append(row[idx])
         return set(out)
 
-    _, body = req("/api/v2/buckets?limit=100", auth)
-    fmt = "{:<30} {:<18} {:<24} {:>10}  {}"
-    print(fmt.format("BUCKET", "ID", "GHI LAN CUOI", "DUNG LUONG", "TRANG THAI"))
-    print("-" * 104)
-    buckets = json.loads(body).get("buckets", [])
-    buckets.sort(key=lambda b: -scan([os.path.join(DIR, "engine", "data", b["id"])])[1])
+    buckets, offset = [], 0
+    while True:
+        _, body = req(f"/api/v2/buckets?limit=100&offset={offset}", auth)
+        page = json.loads(body).get("buckets", [])
+        buckets += page
+        if len(page) < 100:
+            break
+        offset += 100
+    try:
+        _, body = req("/api/v2/orgs?limit=100", auth)
+        orgs = {o["id"]: o["name"] for o in json.loads(body).get("orgs", [])}
+    except Exception:
+        orgs = {}
+    multi_org = len({b.get("orgID") for b in buckets}) > 1
+
+    def label(b):
+        return f'{b["name"]} [{orgs.get(b.get("orgID"), b.get("orgID", "?"))}]' if multi_org else b["name"]
+
+    rows = []
     for b in buckets:
+        last, size = scan([os.path.join(DIR, "engine", "data", b["id"]), os.path.join(DIR, "engine", "wal", b["id"])])
+        rows.append((b, last, size))
+    rows.sort(key=lambda r: (r[0]["name"].startswith("_"), -r[2]))
+    w = min(max([len(label(b)) for b, _, _ in rows] + [10]), 40)
+    fmt = "{:<%d} {:<18} {:<24} {:>10}  {}" % w
+    print(fmt.format("BUCKET" + (" [ORG]" if multi_org else ""), "ID", "GHI LAN CUOI", "DUNG LUONG", "TRANG THAI"))
+    print("-" * (w + 70))
+    empty = []
+    for b, last, size in rows:
         bid, name = b["id"], b["name"]
-        last, size = scan([os.path.join(DIR, "engine", "data", bid), os.path.join(DIR, "engine", "wal", bid)])
+        system = name.startswith("_")
         live = None
-        if last is None or DETAIL:
+        if not system and (not size or DETAIL):
             try:
                 live = flux(b["orgID"], f'from(bucket: "{name}") |> range(start: -{DAYS}d) |> limit(n: 1)'
                                         f' |> keep(columns: ["_measurement"]) |> group() |> distinct(column: "_measurement")', 300)
             except Exception as e:
-                print(f"{name:<30} {Y}query loi: {e}{N}")
-        if last is None and live is not None:
-            st, is_stale = (f"{G}OK{N} (theo query)", False) if live else (f"{R}KHONG CO DATA {DAYS}d{N} (theo query)", True)
+                print(f"{label(b)[:w]:<{w}} {Y}query loi: {e}{N}")
+        is_stale = False
+        if system:
+            st = "he thong (bo qua)"
+        elif not size and live:
+            st = f"{G}OK{N} (theo query, chua flush xuong dia)"
+        elif not size:
+            # khong co file nao tren dia: bucket chua tung ghi, hoac data cu da het han
+            st = f"{Y}TRONG - khong co data tren dia{N}"
+            empty.append((label(b), bid))
         else:
             st, is_stale = status(last, False)
-        print(fmt.format(name[:30], bid, show_ts(last), human(size), st))
-        if DETAIL and live is not None and not is_stale:
+        print(fmt.format(label(b)[:w], bid, show_ts(last), human(size), st))
+        if DETAIL and live is not None and not is_stale and live:
             try:
                 allm = flux(b["orgID"], f'import "influxdata/influxdb/schema"\n'
                                         f'schema.measurements(bucket: "{name}", start: 1970-01-01T00:00:00Z)'
                                         f' |> rename(columns: {{_value: "_measurement"}})', 300)
                 dead = sorted(allm - live)
                 if dead:
-                    print(f"{'':<30} {Y}measurement khong co data {DAYS}d ({len(dead)}/{len(allm)}): {', '.join(dead[:15])}{N}")
+                    print(f"{'':<{w}} {Y}measurement khong co data {DAYS}d ({len(dead)}/{len(allm)}): {', '.join(dead[:15])}{N}")
             except Exception as e:
-                print(f"{'':<30} {Y}khong lay duoc chi tiet measurement: {e}{N}")
-        if is_stale and not name.startswith("_"):
-            stale.append((name, bid, size))
+                print(f"{'':<{w}} {Y}khong lay duoc chi tiet measurement: {e}{N}")
+        if is_stale:
+            stale.append((label(b), bid, size))
             total_stale += size
-    print("-" * 104)
+    print("-" * (w + 70))
     if stale:
         print(f"\n{R}{B}Co {len(stale)} bucket khong co data trong {DAYS} ngay, tong {human(total_stale)}:{N}")
         print("Lenh tham khao (CHUA chay - kiem tra truoc khi xoa):")
         for name, bid, size in stale:
             print(f"  influx bucket delete --id {bid}     # {name}, {human(size)}")
     else:
-        print(f"\n{G}Tat ca bucket deu co data trong {DAYS} ngay.{N}")
+        print(f"\n{G}Khong co bucket nao co data cu ma ngung ghi {DAYS} ngay.{N}")
+    if empty:
+        print(f"\n{Y}{len(empty)} bucket TRONG (0B, khong giai phong duoc gi; co the la bucket moi tao / da het han / Grafana dung de ghi):{N}")
+        for name, bid in empty:
+            print(f"  influx bucket delete --id {bid}     # {name}")
 PY
